@@ -104,6 +104,56 @@ if st.button("Train AI and Run Live Simulation", type="primary"):
 
     progress.empty()
     agent.epsilon = 0
+    
+    # Evaluate AI against fixed-time signals
+    rl_queues = []
+    fixed_queues = []
+
+    for trial in range(10):
+        seed = 50000 + trial
+
+        sim.reset(seed)
+        state = sim.get_state()
+        total_queue = 0
+
+        for _ in range(100):
+            action = agent.choose_action(state)
+            state, passed, reward = sim.step(action)
+            total_queue += sum(sim.traffic)
+
+        rl_queues.append(total_queue / 100)
+
+        sim.reset(seed)
+        total_queue = 0
+
+        for step in range(100):
+            action = step % 4
+            state, passed, reward = sim.step(action)
+            total_queue += sum(sim.traffic)
+
+        fixed_queues.append(total_queue / 100)
+
+    ai_queue = sum(rl_queues) / len(rl_queues)
+    fixed_queue = sum(fixed_queues) / len(fixed_queues)
+
+    score = (
+        (fixed_queue - ai_queue) / fixed_queue * 100
+        if fixed_queue > 0 else 0
+    )
+
+    st.subheader("AI Model Performance")
+    c1, c2, c3 = st.columns(3)
+
+    c1.metric("AI Performance Score", f"{score:.1f}%",
+              help="Percentage reduction in average queue compared with fixed-time control. A negative value means the AI performed worse.")
+    c2.metric("AI Average Queue", f"{ai_queue:.2f} cars")
+    c3.metric("Fixed-Time Average Queue", f"{fixed_queue:.2f} cars")
+
+    st.caption(
+        "Evaluation uses 10 test runs of 100 steps each. "
+        "This score measures queue reduction, not prediction accuracy."
+    )
+
     st.success(f"Training complete — {len(agent.q_table)} states learned")
 
     sim.reset(42)
