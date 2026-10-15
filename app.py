@@ -1,108 +1,109 @@
 import streamlit as st
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import time
 from traffic_simulation import TrafficSimulation
 from q_learning import QLearningAgent
 
-st.set_page_config(page_title="Traffic Signal Optimizer", page_icon="🚦", layout="wide")
+st.set_page_config(page_title="AI Traffic Simulator", page_icon="🚦", layout="wide")
 
-st.title("🚦 Traffic Signal Timing Optimizer")
-st.write("Using Q-Learning to reduce traffic congestion at a four-road intersection.")
+st.title("🚦 AI Traffic Signal Simulator")
+st.write("Watch a Q-learning agent control traffic at a four-road intersection.")
 
-st.info("The simulation compares a reinforcement learning agent with a fixed-time traffic signal.")
+speed = st.slider("Animation speed (seconds per step)", 0.1, 1.0, 0.3, 0.1)
+steps = st.slider("Simulation steps", 20, 150, 60, 10)
 
-if st.button("Run Simulation", type="primary"):
-    with st.spinner("Training the Q-Learning agent and testing both methods..."):
-        sim = TrafficSimulation()
-        agent = QLearningAgent()
-        rewards = []
+def draw_intersection(traffic, green_road, step):
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.set_xlim(-10, 10)
+    ax.set_ylim(-10, 10)
+    ax.set_aspect("equal")
+    ax.set_facecolor("#47734b")
+    fig.patch.set_facecolor("#47734b")
 
-        for ep in range(1500):
-            state = sim.reset(10000 + ep)
-            total_reward = 0
-            agent.epsilon = max(0.03, 0.3 * (1 - ep / 1500))
+    ax.add_patch(patches.Rectangle((-3, -10), 6, 20, color="#454545"))
+    ax.add_patch(patches.Rectangle((-10, -3), 20, 6, color="#454545"))
 
-            for _ in range(100):
-                action = agent.choose_action(state)
-                next_state, passed, reward = sim.step(action)
-                agent.learn(state, action, reward, next_state)
-                state = next_state
-                total_reward += reward
+    ax.plot([0, 0], [-10, 10], color="white", linestyle="--", linewidth=1)
+    ax.plot([-10, 10], [0, 0], color="white", linestyle="--", linewidth=1)
 
-            rewards.append(total_reward)
+    positions = [
+        (-1.5, 4.0, 0, 1),
+        (4.0, -1.5, 1, 0),
+        (1.5, -4.0, 0, -1),
+        (-4.0, 1.5, -1, 0)
+    ]
 
-        agent.epsilon = 0
-        rl_results = []
-        fixed_results = []
+    for road, count in enumerate(traffic):
+        for j in range(min(count, 12)):
+            if road == 0:
+                x, y = -1.5, 4.0 + j * 0.85
+            elif road == 1:
+                x, y = 4.0 + j * 0.85, -1.5
+            elif road == 2:
+                x, y = 1.5, -4.0 - j * 0.85
+            else:
+                x, y = -4.0 - j * 0.85, 1.5
 
-        for trial in range(10):
-            seed = 50000 + trial
-            sim.reset(seed)
-            state = sim.get_state()
-            total = 0
+            ax.add_patch(
+                patches.Rectangle(
+                    (x - 0.28, y - 0.4), 0.56, 0.8,
+                    color="#f4c542", ec="black", linewidth=0.5
+                )
+            )
 
-            for _ in range(200):
-                action = agent.choose_action(state)
-                state, passed, reward = sim.step(action)
-                total += sum(sim.traffic)
+    lights = [(-2.0, 3.0), (3.0, 2.0), (2.0, -3.0), (-3.0, -2.0)]
 
-            rl_results.append(total / 200)
+    for road, (x, y) in enumerate(lights):
+        color = "#36e06b" if road == green_road else "#ff4545"
+        ax.add_patch(patches.Circle((x, y), 0.42, color=color, ec="white"))
 
-            sim.reset(seed)
-            total = 0
+    names = ["North", "East", "South", "West"]
+    ax.set_title(
+        f"Step {step} | Green signal: {names[green_road]}",
+        color="white", fontsize=15, pad=12
+    )
+    ax.text(-9.5, -9.2, "Yellow cars = waiting vehicles",
+            color="white", fontsize=10)
+    ax.axis("off")
+    fig.tight_layout()
+    return fig
 
-            for step in range(200):
-                action = step % 4
-                state, passed, reward = sim.step(action)
-                total += sum(sim.traffic)
+if st.button("Train AI and Start Simulation", type="primary"):
+    sim = TrafficSimulation()
+    agent = QLearningAgent()
 
-            fixed_results.append(total / 200)
+    progress = st.progress(0, text="Training Q-learning agent...")
 
-        rl_avg = sum(rl_results) / len(rl_results)
-        fixed_avg = sum(fixed_results) / len(fixed_results)
-        improvement = (fixed_avg - rl_avg) / fixed_avg * 100 if fixed_avg else 0
+    for ep in range(500):
+        state = sim.reset(1000 + ep)
+        agent.epsilon = max(0.03, 0.3 * (1 - ep / 500))
 
-    st.session_state["results"] = {
-        "rewards": rewards,
-        "rl": rl_results,
-        "fixed": fixed_results,
-        "rl_avg": rl_avg,
-        "fixed_avg": fixed_avg,
-        "improvement": improvement,
-        "states": len(agent.q_table)
-    }
+        for _ in range(80):
+            action = agent.choose_action(state)
+            next_state, passed, reward = sim.step(action)
+            agent.learn(state, action, reward, next_state)
+            state = next_state
 
-if "results" in st.session_state:
-    result = st.session_state["results"]
+        if ep % 10 == 0:
+            progress.progress((ep + 1) / 500,
+                              text=f"Training episode {ep + 1}/500")
 
-    st.subheader("Simulation Results")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Q-Learning Average Traffic", round(result["rl_avg"], 2))
-    c2.metric("Fixed-Time Average Traffic", round(result["fixed_avg"], 2))
-    c3.metric("Traffic Reduction", f'{result["improvement"]:.2f}%')
+    progress.empty()
+    agent.epsilon = 0
 
-    st.caption("Average number of cars remaining in the system per simulation step. Results are from this simplified simulation, not real-world traffic measurements.")
+    st.success(f"Training complete! Learned states: {len(agent.q_table)}")
 
-    st.subheader("Q-Learning vs Fixed-Time Control")
-    fig, ax = plt.subplots()
-    ax.plot(range(1, 11), result["rl"], marker="o", label="Q-Learning")
-    ax.plot(range(1, 11), result["fixed"], marker="o", label="Fixed-Time")
-    ax.set_xlabel("Trial")
-    ax.set_ylabel("Average Waiting Traffic")
-    ax.legend()
-    ax.grid(True)
-    st.pyplot(fig)
-    plt.close(fig)
+    sim.reset(42)
+    state = sim.get_state()
 
-    st.subheader("Training Progress")
-    fig2, ax2 = plt.subplots()
-    ax2.plot(result["rewards"])
-    ax2.set_xlabel("Episode")
-    ax2.set_ylabel("Total Reward")
-    ax2.set_title("Q-Learning Training")
-    ax2.grid(True)
-    st.pyplot(fig2)
-    plt.close(fig2)
+    display = st.empty()
+    metrics = st.empty()
+    total_passed = 0
 
-    st.write("Learned states:", result["states"])
-else:
-    st.write("Click **Run Simulation** to train the agent and view the results.")
+    for step in range(1, steps + 1):
+        action = agent.choose_action(state)
+        state, passed, reward = sim.step(action)
+        total_passed += passed
+
+        fig = draw_intersection
